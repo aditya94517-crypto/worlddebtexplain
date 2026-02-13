@@ -165,6 +165,14 @@
                 <div class="hud-value" id="inflation-rate">2.4%</div>
                 <div class="hud-label">INFLATION</div>
             </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="total-agents">0</div>
+                <div class="hud-label">TOTAL AGENTS</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="know-ratio" style="color: gold;">0%</div>
+                <div class="hud-label">IN THE KNOW</div>
+            </div>
         </div>
 
         <!-- Center Notification Area (Hidden by default) -->
@@ -223,14 +231,48 @@
 
         // Mouse Controls
         canvas.addEventListener('mousedown', e => {
-            isDragging = true;
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (STATE.zoomedNode) {
+                // Click anywhere to unzoom
+                STATE.zoomedNode = null;
+                return;
+            }
+
+            // Check for Node Click
+            let clickedNode = null;
+
+            // Reverse iteration to check front-most nodes (z-buffer approx)
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                const n = nodes[i];
+                if (!n.visible || n.screenPos.z > 0) continue; // Only clickable if in front (z < 0)
+
+                const dx = mouseX - n.screenPos.x;
+                const dy = mouseY - n.screenPos.y;
+                // Hitbox varies by perspective
+                const hitSize = Math.max(15, 10 * n.screenPos.scale * n.size);
+
+                if (dx*dx + dy*dy < hitSize*hitSize) {
+                    clickedNode = n;
+                    break;
+                }
+            }
+
+            if (clickedNode && HIERARCHIES[clickedNode.type]) {
+                STATE.zoomedNode = clickedNode;
+            } else {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
         });
 
         window.addEventListener('mouseup', () => isDragging = false);
 
         window.addEventListener('mousemove', e => {
+            if (STATE.zoomedNode) return; // Freeze rotation if zoomed
             if (!isDragging) return;
             const deltaX = e.clientX - lastMouseX;
             const deltaY = e.clientY - lastMouseY;
@@ -288,8 +330,48 @@
             market: [],
             offshore: [],
             illegal: [],
-            resource: []
+            resource: [],
+            temple: [],
+            tower: [],
+            fortress: [],
+            rig: [],
+            eye: [],
+            monolith: [],
+            island: [],
+            cartel: [],
+            mixer: []
         };
+
+        // --- HIERARCHY DATA ---
+        const HIERARCHIES = {
+            temple: [ // Central Bank
+                { role: "Board of Governors", count: 7, power: "Total", desc: "Sets Interest Rates. Full Clearance." },
+                { role: "FOMC", count: 12, power: "High", desc: "Decides Money Supply." },
+                { role: "Trading Desk", count: 500, power: "Medium", desc: "Executes Trillion $ Bond Buys." },
+                { role: "Bureaucracy", count: 20000, power: "Low", desc: "Process Paperwork. No Influence." }
+            ],
+            tower: [ // Commercial Bank
+                { role: "Operating Committee", count: 15, power: "Total", desc: "Strategic Direction." },
+                { role: "Global Markets", count: 5000, power: "High", desc: "Derivatives & Whales." },
+                { role: "Consumer Banking", count: 50000, power: "Medium", desc: "Mid-sized Flows." },
+                { role: "Branch Staff", count: 200000, power: "None", desc: "Data Entry." }
+            ],
+            monolith: [ // Shadow Bank
+                { role: "Executive Committee", count: 20, power: "Total", desc: "Voting Rights on $10T." },
+                { role: "ALADDIN AI", count: 1, power: "Omni", desc: "Risk System Server Farm." },
+                { role: "Portfolio Managers", count: 3000, power: "High", desc: "Stock Selection." },
+                { role: "Compliance", count: 16000, power: "Low", desc: "Data Processing." }
+            ],
+            fortress: [ // Military
+                { role: "SecDef & Joint Chiefs", count: 8, power: "Total", desc: "Final Authority." },
+                { role: "Combatant Commanders", count: 11, power: "High", desc: "Regional Control." },
+                { role: "Officers", count: 200000, power: "Medium", desc: "Strategic Ops." },
+                { role: "Enlisted Force", count: 1300000, power: "None", desc: "Execute Orders." }
+            ]
+        };
+
+        // Special Division for Banks
+        const HIDDEN_LEVEL = { role: "Special Clients Div.", count: 50, power: "Secret", desc: "Handle Cartel/Offshore Accounts." };
 
         // Helper: Spherical to Cartesian
         function getPosition(lat, lon, radius) {
@@ -323,60 +405,92 @@
 
                 // Altitude based on layer
                 let alt = 0;
-                if (layer === 2) alt = 40; // Offshore hovers above
-                if (layer === 3) alt = -10; // Underground slightly below surface
+                // Layer 1 (Surface) is base radius
+                if (layer === 2) alt = 20; // Enforcers slightly above
+                if (layer === 3) alt = 40; // Shadow High Above (Elite)
+                if (layer === 4) alt = -20; // Underworld Below Surface
 
                 this.pos = getPosition(lat, lon, CONFIG.globeRadius + alt);
                 this.screenPos = { x: 0, y: 0 }; // Updated every frame
                 this.visible = false;
+                this.size = 1; // For growth/shrink animation
+            }
+        }
+
+        const publicCloud = [];
+
+        function initPublicCloud() {
+            // Generate cloud of dots around populated areas (approx)
+            for(let i=0; i<1000; i++) {
+                 // Random lat/lon but weighted towards North Hemisphere
+                 let lat = (Math.random() * 140) - 50;
+                 let lon = (Math.random() * 360) - 180;
+                 publicCloud.push({
+                     pos: getPosition(lat, lon, CONFIG.globeRadius + 2), // Just above surface
+                     basePos: getPosition(lat, lon, CONFIG.globeRadius + 2),
+                     color: '#00ccff',
+                     alpha: 0.3 + Math.random() * 0.5
+                 });
             }
         }
 
         function initNodes() {
-            // Layer 0: Bedrock (Real Value) - Gold
-            nodes.push(new Node("Gold Mine (SA)", -30, 25, 0, 'resource'));
-            nodes.push(new Node("Oil Field (ME)", 25, 45, 0, 'resource'));
-            nodes.push(new Node("Wheat Belt (US)", 40, -100, 0, 'resource'));
-            nodes.push(new Node("Lithium (Aus)", -25, 135, 0, 'resource'));
+            // Layer 1: The Surface (Public Face)
+            // Central Banks (Temples)
+            nodes.push(new Node("The FED", 38, -77, 1, 'temple'));
+            nodes.push(new Node("ECB", 50, 8, 1, 'temple'));
+            nodes.push(new Node("BOJ", 35, 139, 1, 'temple'));
+            // Commercial Banks (Towers)
+            nodes.push(new Node("JPM", 40, -74, 1, 'tower'));
+            nodes.push(new Node("HSBC", 51, 0, 1, 'tower'));
+            nodes.push(new Node("Deutsche", 50, 9, 1, 'tower'));
 
-            // Layer 1: Surface (Fiat) - Cyan
-            nodes.push(new Node("FED (DC)", 38, -77, 1, 'bank'));
-            nodes.push(new Node("ECB (Frankfurt)", 50, 8, 1, 'bank'));
-            nodes.push(new Node("BOJ (Tokyo)", 35, 139, 1, 'bank'));
-            nodes.push(new Node("LSE (London)", 51, 0, 1, 'market'));
-            nodes.push(new Node("NYSE (NY)", 40, -74, 1, 'market'));
+            // Layer 2: The Enforcers (Hard Power)
+            // Military (Fortresses)
+            nodes.push(new Node("Pentagon", 38, -77, 2, 'fortress'));
+            nodes.push(new Node("NATO HQ", 50, 4, 2, 'fortress'));
+            // Oil (Rigs)
+            nodes.push(new Node("Aramco", 24, 46, 2, 'rig'));
+            nodes.push(new Node("Exxon", 30, -95, 2, 'rig'));
+            // Tech (Eyes)
+            nodes.push(new Node("Google", 37, -122, 2, 'eye'));
+            nodes.push(new Node("Palantir", 39, -105, 2, 'eye'));
 
-            // Layer 2: Shadow (Offshore) - Ghost White
-            nodes.push(new Node("Cayman Is.", 19, -81, 2, 'offshore'));
-            nodes.push(new Node("Zurich", 47, 8, 2, 'offshore'));
-            nodes.push(new Node("Singapore", 1, 103, 2, 'offshore'));
-            nodes.push(new Node("Dubai", 25, 55, 2, 'offshore'));
+            // Layer 3: The Shadow (Elite Backdoor)
+            // Asset Managers (Monoliths)
+            nodes.push(new Node("BlackRock", 40, -73, 3, 'monolith'));
+            nodes.push(new Node("Vanguard", 40, -75, 3, 'monolith'));
+            // Tax Havens (Islands)
+            nodes.push(new Node("Cayman", 19, -81, 3, 'island'));
+            nodes.push(new Node("Zurich", 47, 8, 3, 'island'));
+            nodes.push(new Node("London City", 51, -0.1, 3, 'island'));
 
-            // Layer 3: Underworld (Illegal) - Red
-            nodes.push(new Node("Cartel Hub (Mex)", 23, -102, 3, 'illegal'));
-            nodes.push(new Node("Dark Server (Rus)", 60, 100, 3, 'illegal'));
-            nodes.push(new Node("Smuggler Port (SE Asia)", 10, 105, 3, 'illegal'));
+            // Layer 4: The Underworld (Red Market)
+            // Cartels
+            nodes.push(new Node("Sinaloa", 25, -107, 4, 'cartel'));
+            nodes.push(new Node("Triad", 22, 114, 4, 'cartel'));
+            // Dark Finance
+            nodes.push(new Node("Crypto Mixer", 60, 30, 4, 'mixer')); // Russia/East
 
-            // Create Connections (Static Links for visualization)
-            // Connect Banks (Layer 1)
-            links.push({ from: 4, to: 5, color: CONFIG.colors.fiat }); // ECB <-> FED
-            links.push({ from: 4, to: 6, color: CONFIG.colors.fiat }); // FED <-> BOJ
-            links.push({ from: 4, to: 8, color: CONFIG.colors.fiat }); // FED <-> NYSE
+            // Layer 0: Bedrock (Intrinsic Value - Always there)
+            nodes.push(new Node("Gold Reserve", 40, -110, 0, 'resource')); // US West
+            nodes.push(new Node("Wheat Belt", 45, 35, 0, 'resource')); // Ukraine/Russia
 
-            // Connect Offshore (Layer 1 -> 2)
-            links.push({ from: 8, to: 9, color: CONFIG.colors.shadow, dashed: true }); // NYSE -> Cayman
-            links.push({ from: 5, to: 10, color: CONFIG.colors.shadow, dashed: true }); // ECB -> Zurich
+            // Populate Groups for easy access
+            // Reset groups first
+            for(let k in nodeGroups) nodeGroups[k] = [];
 
-            // Shield Node (Center of West)
-            nodes.push(new Node("Forcefield", 45, -35, 1, 'shield'));
-
-            // Connect Illegal (Layer 3 -> 1)
-            links.push({ from: 13, to: 4, color: CONFIG.colors.dirty, dashed: true }); // Cartel -> FED (Laundering)
-
-            // Populate Groups
+            // Add new groups dynamically
             for(let n of nodes) {
-                if(nodeGroups[n.type]) nodeGroups[n.type].push(n);
+                if(!nodeGroups[n.type]) nodeGroups[n.type] = [];
+                nodeGroups[n.type].push(n);
             }
+
+            // Also map by layer for broad logic
+            nodeGroups.layer1 = nodes.filter(n => n.layer === 1);
+            nodeGroups.layer2 = nodes.filter(n => n.layer === 2);
+            nodeGroups.layer3 = nodes.filter(n => n.layer === 3);
+            nodeGroups.layer4 = nodes.filter(n => n.layer === 4);
         }
 
         // Render Functions
@@ -396,80 +510,247 @@
             }
         }
 
-        function renderNodes() {
-            // Draw Links first
-            for (let link of links) {
-                const n1 = nodes[link.from];
-                const n2 = nodes[link.to];
+        function renderPublicCloud() {
+            if (STATE.xray) return; // Hide in X-Ray
 
-                // X-Ray Logic: Hide Layer 1 links (Surface)
-                if (STATE.xray && (n1.layer === 1 || n2.layer === 1)) continue;
-
-                // Sanction Logic: Turn Fiat links red
-                let color = link.color;
-                if (STATE.sanctioned && link.color === CONFIG.colors.fiat) {
-                    color = CONFIG.colors.dirty; // Red
-                }
-
-                const p1 = project(n1.pos.x, n1.pos.y, n1.pos.z);
-                const p2 = project(n2.pos.x, n2.pos.y, n2.pos.z);
-
-                if (p1 && p2 && p1.z > -100 && p2.z > -100) {
-                    ctx.beginPath();
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 1;
-                    if (link.dashed) ctx.setLineDash([5, 5]);
-                    else ctx.setLineDash([]);
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.stroke();
+            for(let p of publicCloud) {
+                const proj = project(p.pos.x, p.pos.y, p.pos.z);
+                if(proj && proj.scale > 0) {
+                    const size = 1.2 * proj.scale;
+                    ctx.globalAlpha = p.alpha * (proj.z < 0 ? 1 : 0.2); // Fade if backface
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(proj.x, proj.y, size, size);
                 }
             }
-            // Reset dash
-            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+        }
 
-            // Draw Nodes
+        function renderPyramid() {
+            const node = STATE.zoomedNode;
+            if (!node) return;
+
+            const levels = HIERARCHIES[node.type];
+            if (!levels) return;
+
+            // Dim Background
+            ctx.fillStyle = 'rgba(0,0,0,0.85)';
+            ctx.fillRect(0, 0, width, height);
+
+            const cx = width / 2;
+            const cy = height / 2;
+            const pyWidth = 400;
+            const pyHeight = 500;
+            const startY = cy - pyHeight / 2;
+
+            // Draw Title
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#00ffcc';
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillText(`INTERNAL STRUCTURE: ${node.name}`, cx, startY - 40);
+            ctx.font = '16px Courier New';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText("Chain of Command & Info Access", cx, startY - 20);
+
+            // Draw Pyramid Levels
+            const levelHeight = pyHeight / levels.length;
+
+            for (let i = 0; i < levels.length; i++) {
+                const lvl = levels[i];
+                const y = startY + (i * levelHeight);
+
+                // Colors based on Fog of War
+                let bgCol = '#333';
+                let borderCol = '#555';
+                let textCol = '#888';
+                let info = "FOG OF WAR: RESTRICTED";
+
+                if (i === 0) { // Top (Gold)
+                    bgCol = 'rgba(255, 215, 0, 0.2)';
+                    borderCol = '#ffd700';
+                    textCol = '#ffd700';
+                    info = "CLEARANCE: OMNI";
+                } else if (i < levels.length - 1) { // Middle (Blue)
+                    bgCol = 'rgba(0, 255, 204, 0.1)';
+                    borderCol = '#00ffcc';
+                    textCol = '#00ffcc';
+                    info = "CLEARANCE: DEPT ONLY";
+                } else { // Bottom (Grey)
+                    bgCol = 'rgba(100, 100, 100, 0.1)';
+                    borderCol = '#666';
+                    textCol = '#666';
+                    info = "CLEARANCE: TASK ONLY";
+                }
+
+                // Trapezoid Widths
+                const topW = pyWidth * (i / levels.length);
+                const botW = pyWidth * ((i + 1) / levels.length);
+
+                // Draw Trapezoid
+                ctx.beginPath();
+                ctx.moveTo(cx - topW/2, y);
+                ctx.lineTo(cx + topW/2, y);
+                ctx.lineTo(cx + botW/2, y + levelHeight - 5);
+                ctx.lineTo(cx - botW/2, y + levelHeight - 5);
+                ctx.closePath();
+
+                ctx.fillStyle = bgCol;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = borderCol;
+                ctx.stroke();
+
+                // Text
+                ctx.fillStyle = textCol;
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillText(lvl.role, cx, y + 25);
+
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#fff';
+                ctx.fillText(`${lvl.count.toLocaleString()} Agents`, cx, y + 45);
+
+                ctx.font = 'italic 12px Courier New';
+                ctx.fillStyle = '#aaa';
+                ctx.fillText(lvl.desc, cx, y + 65);
+
+                // Info Status
+                ctx.font = '10px Courier New';
+                ctx.fillStyle = textCol;
+                ctx.fillText(info, cx, y + levelHeight - 15);
+            }
+
+            // Hidden Level (Banks Only)
+            if (node.type === 'tower') {
+                 // Draw a side box attached to Level 2
+                 const y = startY + (1 * levelHeight);
+                 const x = cx + (pyWidth * (2/levels.length))/2 + 20;
+
+                 ctx.strokeStyle = '#ff3333'; // Red
+                 ctx.fillStyle = 'rgba(50, 0, 0, 0.8)';
+                 ctx.setLineDash([5, 5]);
+                 ctx.lineWidth = 2;
+
+                 ctx.fillRect(x, y, 180, 80);
+                 ctx.strokeRect(x, y, 180, 80);
+                 ctx.setLineDash([]);
+
+                 ctx.fillStyle = '#ff3333';
+                 ctx.font = 'bold 12px Courier New';
+                 ctx.fillText("SECRET DIVISION", x + 90, y + 20);
+                 ctx.fillStyle = '#fff';
+                 ctx.fillText(HIDDEN_LEVEL.role, x + 90, y + 40);
+                 ctx.fillText("Power: OFF-BOOKS", x + 90, y + 60);
+
+                 // Connection Line
+                 ctx.beginPath();
+                 ctx.moveTo(cx + 50, y + 40); // From inside pyramid
+                 ctx.lineTo(x, y + 40);
+                 ctx.strokeStyle = '#ff3333';
+                 ctx.stroke();
+            }
+
+            ctx.textAlign = 'left'; // Reset
+        }
+
+        function renderNodes() {
+            // Draw Links first (Simple connections if any exist in the links array)
+            // ... (Most logic moved to Particles/Flows, keeping legacy links if any)
+
+            // Draw Nodes with Shapes
             for (let node of nodes) {
-                // X-Ray Logic: Hide Layer 1 nodes
-                if (STATE.xray && node.layer === 1) continue;
+                // X-Ray Logic: Hide Layer 1 (Surface) & Layer 2 (Enforcers)
+                // Wait, prompt says "Hides Layer 1 & 2".
+                // But we want to see Military (Layer 2) in X-Ray according to prompt?
+                // Prompt: "Hides Layer 1 & 2. Reveals only the Military bases... and Illegal money"
+                // So hide Layer 1 (Banks) and Layer 2 (Tech/Oil)? But keep Military?
+
+                let hidden = false;
+                if (STATE.xray) {
+                    if (node.layer === 1) hidden = true; // Hide Banks/Public
+                    if (node.layer === 2 && node.type !== 'fortress') hidden = true; // Hide Tech/Oil, Keep Military
+                }
+
+                if (hidden) continue;
 
                 const proj = project(node.pos.x, node.pos.y, node.pos.z);
                 if (proj) {
                     node.screenPos = proj;
                     node.visible = true;
+                    const s = 6 * proj.scale * node.size; // Base size
 
-                    const size = 4 * proj.scale;
-
+                    // Forcefield Render
                     if (node.type === 'shield') {
-                        // Special Render for Forcefield
-                        if (STATE.integrity > 50 && !STATE.sanctioned && !STATE.xray) {
-                            ctx.fillStyle = 'rgba(0, 200, 255, 0.05)';
-                            ctx.strokeStyle = 'rgba(0, 200, 255, 0.2)';
-                            ctx.beginPath();
-                            ctx.arc(proj.x, proj.y, size * 15, 0, Math.PI * 2);
-                            ctx.fill();
-                            ctx.stroke();
+                        if (STATE.integrity > 30 && !STATE.xray) {
+                             ctx.fillStyle = 'rgba(0, 200, 255, 0.05)';
+                             ctx.strokeStyle = 'rgba(0, 200, 255, 0.2)';
+                             ctx.beginPath();
+                             ctx.arc(proj.x, proj.y, s * 15, 0, Math.PI * 2);
+                             ctx.fill();
+                             ctx.stroke();
                         }
                         continue;
                     }
 
-                    if (node.layer === 0) ctx.fillStyle = CONFIG.colors.gold;
-                    else if (node.layer === 1) ctx.fillStyle = CONFIG.colors.fiat;
-                    else if (node.layer === 2) ctx.fillStyle = CONFIG.colors.shadow;
-                    else if (node.layer === 3) ctx.fillStyle = CONFIG.colors.dirty;
+                    // Colors
+                    ctx.fillStyle = '#fff';
+                    ctx.strokeStyle = '#fff';
+                    if (node.layer === 1) ctx.fillStyle = CONFIG.colors.fiat;
+                    if (node.layer === 2) ctx.fillStyle = '#8899aa'; // Steel Grey
+                    if (node.layer === 3) ctx.fillStyle = '#444'; // Dark Monolith
+                    if (node.layer === 4) ctx.fillStyle = CONFIG.colors.dirty;
+                    if (node.type === 'resource') ctx.fillStyle = CONFIG.colors.gold;
 
-                    // Sanction: Turn banks red
-                    if (STATE.sanctioned && node.type === 'bank') ctx.fillStyle = CONFIG.colors.dirty;
+                    // Special State Colors
+                    if (node.type === 'bank' && STATE.integrity < 50) ctx.fillStyle = '#ff0000'; // Insolvent
 
                     ctx.beginPath();
-                    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
-                    ctx.fill();
+
+                    // Shapes
+                    if (node.type === 'temple') { // Triangle
+                        ctx.moveTo(proj.x, proj.y - s);
+                        ctx.lineTo(proj.x + s, proj.y + s);
+                        ctx.lineTo(proj.x - s, proj.y + s);
+                        ctx.fill();
+                    } else if (node.type === 'tower') { // Rect
+                        ctx.fillRect(proj.x - s/2, proj.y - s, s, s*2);
+                    } else if (node.type === 'fortress') { // Pentagon
+                         const step = (Math.PI * 2) / 5;
+                         for(let i=0; i<5; i++) {
+                             ctx.lineTo(proj.x + s * Math.cos(step*i - Math.PI/2), proj.y + s * Math.sin(step*i - Math.PI/2));
+                         }
+                         ctx.fill();
+                    } else if (node.type === 'monolith') { // Tall Dark Rect
+                         ctx.fillStyle = '#111';
+                         ctx.strokeStyle = '#333';
+                         ctx.fillRect(proj.x - s/2, proj.y - s*1.5, s, s*3);
+                         ctx.strokeRect(proj.x - s/2, proj.y - s*1.5, s, s*3);
+                    } else if (node.type === 'eye') { // Eye
+                         ctx.arc(proj.x, proj.y, s, 0, Math.PI*2);
+                         ctx.stroke();
+                         ctx.beginPath();
+                         ctx.arc(proj.x, proj.y, s/3, 0, Math.PI*2);
+                         ctx.fill();
+                    } else if (node.type === 'rig') { // T shape
+                        ctx.fillRect(proj.x - s/4, proj.y - s, s/2, s*2);
+                        ctx.fillRect(proj.x - s, proj.y - s, s*2, s/2);
+                    } else if (node.type === 'cartel') { // X
+                        ctx.moveTo(proj.x - s, proj.y - s);
+                        ctx.lineTo(proj.x + s, proj.y + s);
+                        ctx.moveTo(proj.x + s, proj.y - s);
+                        ctx.lineTo(proj.x - s, proj.y + s);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = CONFIG.colors.dirty;
+                        ctx.stroke();
+                    } else {
+                        // Default Circle
+                        ctx.arc(proj.x, proj.y, s, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
 
                     // Label (only if in front)
                     if (proj.z < 0) {
                         ctx.fillStyle = '#fff';
                         ctx.font = '10px Courier New';
-                        ctx.fillText(node.name, proj.x + 5, proj.y - 5);
+                        ctx.fillText(node.name, proj.x + s, proj.y - s);
                     }
                 } else {
                     node.visible = false;
@@ -525,10 +806,12 @@
             p.target = targetNode;
 
             // Determine color
-            if (type === 'fiat') p.color = CONFIG.colors.fiat;
-            if (type === 'gold') p.color = CONFIG.colors.gold;
+            if (type === 'fiat') p.color = CONFIG.colors.fiat; // Blue
+            if (type === 'fiat_public') p.color = CONFIG.colors.fiat; // Blue
+            if (type === 'protection') p.color = '#8899aa'; // Steel Grey
+            if (type === 'vacuum') p.color = CONFIG.colors.gold; // Gold Dust
+            if (type === 'laundromat') p.color = CONFIG.colors.dirty; // Red
             if (type === 'dirty') p.color = CONFIG.colors.dirty;
-            if (type === 'leak') p.color = CONFIG.colors.shadow;
         }
 
         function updateAndRenderParticles() {
@@ -537,23 +820,29 @@
 
                 // Logic: Move towards target
                 if (p.target) {
-                    const tx = p.target.pos.x;
-                    const ty = p.target.pos.y;
-                    const tz = p.target.pos.z;
+                    const tx = p.target.pos ? p.target.pos.x : p.target.x; // Handle raw objects
+                    const ty = p.target.pos ? p.target.pos.y : p.target.y;
+                    const tz = p.target.pos ? p.target.pos.z : p.target.z;
 
-                    const speed = 0.02;
+                    const speed = 0.03; // Slightly faster
                     p.x += (tx - p.x) * speed;
                     p.y += (ty - p.y) * speed;
                     p.z += (tz - p.z) * speed;
 
-                    const dist = (tx-p.x)**2 + (ty-p.y)**2 + (tz-p.z)**2; // Squared dist for speed
-                    if (dist < 25) { // < 5 distance
-                        if (p.type === 'dirty') {
-                            p.type = 'fiat';
+                    const dist = (tx-p.x)**2 + (ty-p.y)**2 + (tz-p.z)**2;
+                    if (dist < 25) { // Arrival
+                        if (p.type === 'laundromat') {
+                            // Cleaned! Turn Blue and go to Public
+                            p.type = 'fiat_public';
                             p.color = CONFIG.colors.fiat;
-                            p.target = nodeGroups.market[Math.floor(Math.random() * nodeGroups.market.length)];
+                            p.target = { pos: getRandomPublicPoint().pos };
                         } else if (p.type === 'fiat') {
-                            p.life += 10;
+                             // Central -> Commercial. Now go to Public.
+                             p.type = 'fiat_public';
+                             p.target = { pos: getRandomPublicPoint().pos };
+                        } else {
+                            // Die on arrival (absorbed)
+                            p.active = false;
                         }
                     }
                 }
@@ -590,7 +879,8 @@
             ratio: 124,
             leaking: true,
             xray: false,
-            sanctioned: false
+            sanctioned: false,
+            zoomedNode: null
         };
 
         const DOM = {
@@ -598,8 +888,34 @@
             ratio: document.getElementById('real-fake-ratio'),
             integrity: document.getElementById('system-integrity'),
             inflation: document.getElementById('inflation-rate'),
-            notification: document.getElementById('notification-area')
+            notification: document.getElementById('notification-area'),
+            agents: document.getElementById('total-agents'),
+            knowRatio: document.getElementById('know-ratio')
         };
+
+        // Calculate Global Headcount
+        let totalAgents = 0;
+        let totalKnow = 0;
+
+        function updateHeadcount() {
+            totalAgents = 0;
+            totalKnow = 0;
+
+            for(let type in HIERARCHIES) {
+                const levels = HIERARCHIES[type];
+                // Multiply by number of nodes of this type
+                const count = nodeGroups[type] ? nodeGroups[type].length : 0;
+
+                if(count > 0) {
+                     for(let lvl of levels) {
+                         totalAgents += lvl.count * count;
+                         if(lvl.power === "Total" || lvl.power === "Omni") {
+                             totalKnow += lvl.count * count;
+                         }
+                     }
+                }
+            }
+        }
 
         function formatCurrency(val) {
             return '$' + val.toLocaleString();
@@ -632,37 +948,63 @@
                     DOM.integrity.style.color = '#00ffcc';
                     DOM.notification.style.display = 'none';
                 }
+
+                // Agents (Static mostly)
+                DOM.agents.innerText = (totalAgents / 1000000).toFixed(1) + 'M';
+                DOM.knowRatio.innerText = (totalKnow / totalAgents * 100).toFixed(4) + '%';
             }
+        }
+
+        // Helper to pick random cloud point
+        function getRandomPublicPoint() {
+            return publicCloud[Math.floor(Math.random() * publicCloud.length)];
         }
 
         // Spawner Logic (The Heartbeat)
         function spawnLoop() {
-            // 1. Fiat Generation (Central Banks -> Markets)
-            if (Math.random() > 0.5) {
-                const source = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
-                const target = nodeGroups.market[Math.floor(Math.random() * nodeGroups.market.length)];
-                spawnParticle('fiat', source, target);
+            // Pipeline A: Fiat Pump (Central -> Commercial -> Public)
+            if (Math.random() > 0.3) {
+                // Step 1: Central -> Commercial
+                const central = nodeGroups.temple[Math.floor(Math.random() * nodeGroups.temple.length)];
+                const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                spawnParticle('fiat', central, commercial);
+            }
+            // Step 2: Commercial -> Public (Handled in Particle Update or just spawn random)
+            if (Math.random() > 0.3) {
+                 const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                 const pub = getRandomPublicPoint();
+                 // We need to pass a "Target Object" that has .pos
+                 spawnParticle('fiat_public', commercial, { pos: pub.pos });
             }
 
-            // 2. Dirty Money (Illegal -> Banks)
+            // Pipeline B: Protection Racket (Public -> Military)
             if (Math.random() > 0.8) {
-                const source = nodeGroups.illegal[Math.floor(Math.random() * nodeGroups.illegal.length)];
-                const target = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
-                spawnParticle('dirty', source, target);
+                const pub = getRandomPublicPoint();
+                const military = nodeGroups.fortress[Math.floor(Math.random() * nodeGroups.fortress.length)];
+                spawnParticle('protection', { pos: pub.pos }, military);
             }
 
-            // 3. Gold (Mines -> Zurich)
-            if (Math.random() > 0.9) {
-                const source = nodeGroups.resource[Math.floor(Math.random() * nodeGroups.resource.length)];
-                const zurich = nodeGroups.offshore.find(n => n.name === 'Zurich'); // Zurich is offshore in code
-                if (zurich) spawnParticle('gold', source, zurich);
-            }
-
-            // 4. The Leak (Inflation -> Offshore)
+            // Pipeline C: The Vacuum (Public -> Asset Managers)
+            // Triggered by "Inflation Leak"
             if (STATE.leaking && Math.random() > 0.6) {
-                 const bank = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
-                 const offshore = nodeGroups.offshore[Math.floor(Math.random() * nodeGroups.offshore.length)];
-                 spawnParticle('leak', bank, offshore);
+                 const pub = getRandomPublicPoint();
+                 const assetMgr = nodeGroups.monolith[Math.floor(Math.random() * nodeGroups.monolith.length)];
+                 spawnParticle('vacuum', { pos: pub.pos }, assetMgr);
+            }
+
+            // Pipeline D: The Laundromat (Cartel -> Commercial)
+            if (Math.random() > 0.7) {
+                const cartel = nodeGroups.cartel[Math.floor(Math.random() * nodeGroups.cartel.length)];
+                const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                spawnParticle('laundromat', cartel, commercial);
+            }
+
+            // Sanction Bypass (East -> Dark Finance -> Gold)
+            if (STATE.sanctioned && Math.random() > 0.9) {
+                // Just visualize flow to mixer
+                const mixer = nodeGroups.mixer[0];
+                const gold = nodeGroups.resource[0];
+                spawnParticle('dirty', gold, mixer);
             }
         }
 
@@ -674,7 +1016,10 @@
 
             initGlobe();
             initNodes();
+            initPublicCloud();
             initParticles();
+
+            updateHeadcount();
 
             // Event Listeners
             document.getElementById('btn-stimulus').addEventListener('click', () => {
@@ -739,11 +1084,16 @@
                     worldRotationY += CONFIG.rotationSpeed;
                 }
 
-                renderGlobe();
-                renderNodes();
+                if (STATE.zoomedNode) {
+                    renderPyramid();
+                } else {
+                    renderGlobe();
+                    renderPublicCloud();
+                    renderNodes();
 
-                spawnLoop();
-                updateAndRenderParticles();
+                    spawnLoop();
+                    updateAndRenderParticles();
+                }
 
                 updateSimulation();
                 frameCount++;
