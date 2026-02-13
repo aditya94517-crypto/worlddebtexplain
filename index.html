@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project OMEGA: The Total Earth Financial Simulator</title>
+    <style>
+        /* CSS Reset & Dark Mode Base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', Courier, monospace; /* Monospaced for tech feel */
+        }
+
+        body {
+            background-color: #000000;
+            color: #00ffcc; /* Neon Cyan default text */
+            overflow: hidden; /* Prevent scrollbars */
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Canvas Overlay */
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI Overlay - HUD & Controls */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none; /* Let clicks pass through to canvas where needed */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+
+        /* Top HUD */
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-bottom: 2px solid #00ffcc;
+            pointer-events: auto;
+        }
+
+        .hud-stat {
+            text-align: center;
+        }
+
+        .hud-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 0 0 5px #00ffcc;
+        }
+
+        .hud-label {
+            font-size: 0.8rem;
+            color: #aaaaaa;
+        }
+
+        /* Bottom Controls */
+        .controls-bottom {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-top: 2px solid #ff0000; /* Red accent for "Danger" feel */
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            pointer-events: auto;
+        }
+
+        button {
+            background: #111;
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
+        }
+
+        button:hover {
+            background: #00ffcc;
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.8);
+        }
+
+        button.danger {
+            color: #ff3333;
+            border-color: #ff3333;
+        }
+
+        button.danger:hover {
+            background: #ff3333;
+            color: #000;
+            box-shadow: 0 0 15px rgba(255, 51, 51, 0.8);
+        }
+
+        /* Scanline Effect */
+        .scanline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.3;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="simulationCanvas"></canvas>
+    </div>
+
+    <div class="scanline"></div>
+
+    <div id="ui-layer">
+        <!-- Top HUD -->
+        <div class="hud-top">
+            <div class="hud-stat">
+                <div class="hud-value" id="global-debt">$305,000,000,000,000</div>
+                <div class="hud-label">GLOBAL DEBT</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="real-fake-ratio">1 : 124</div>
+                <div class="hud-label">REAL / DERIVATIVES</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="system-integrity" style="color: #00ffcc;">98%</div>
+                <div class="hud-label">SYSTEM INTEGRITY</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="inflation-rate">2.4%</div>
+                <div class="hud-label">INFLATION</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="total-agents">0</div>
+                <div class="hud-label">TOTAL AGENTS</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="know-ratio" style="color: gold;">0%</div>
+                <div class="hud-label">IN THE KNOW</div>
+            </div>
+        </div>
+
+        <!-- Center Notification Area (Hidden by default) -->
+        <div id="notification-area" style="text-align: center; margin-top: 20%; display: none;">
+            <h1 style="color: red; font-size: 3rem; text-shadow: 0 0 20px red;">SYSTEM FAILURE IMMINENT</h1>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="controls-bottom">
+            <button id="btn-stimulus">Stimulus Injection</button>
+            <button id="btn-sanction" class="danger">Global Sanction</button>
+            <button id="btn-reset" class="danger">THE GREAT RESET</button>
+            <button id="btn-xray">X-Ray Vision: OFF</button>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            particleCount: 5000,
+            globeRadius: 250,
+            rotationSpeed: 0.002,
+            colors: {
+                fiat: '#00ffcc',   // Cyan/Green
+                gold: '#ffd700',   // Gold
+                dirty: '#ff3333',  // Red
+                shadow: '#aaaaaa', // Grey
+                background: '#000000'
+            }
+        };
+
+        // --- 3D ENGINE CORE ---
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for speed
+
+        let width, height;
+        let focalLength = 400; // Distance to camera
+
+        // World State
+        let worldRotationY = 0;
+        let worldRotationX = 0; // Tilted slightly by default
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // Resize Handling
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            focalLength = width * 0.8; // Dynamic field of view
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Mouse Controls
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (STATE.zoomedNode) {
+                // Click anywhere to unzoom
+                STATE.zoomedNode = null;
+                return;
+            }
+
+            // Check for Node Click
+            let clickedNode = null;
+
+            // Reverse iteration to check front-most nodes (z-buffer approx)
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                const n = nodes[i];
+                if (!n.visible || n.screenPos.z > 0) continue; // Only clickable if in front (z < 0)
+
+                const dx = mouseX - n.screenPos.x;
+                const dy = mouseY - n.screenPos.y;
+                // Hitbox varies by perspective
+                const hitSize = Math.max(15, 10 * n.screenPos.scale * n.size);
+
+                if (dx*dx + dy*dy < hitSize*hitSize) {
+                    clickedNode = n;
+                    break;
+                }
+            }
+
+            if (clickedNode && HIERARCHIES[clickedNode.type]) {
+                STATE.zoomedNode = clickedNode;
+            } else {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            }
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        window.addEventListener('mousemove', e => {
+            if (STATE.zoomedNode) return; // Freeze rotation if zoomed
+            if (!isDragging) return;
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+
+            worldRotationY += deltaX * 0.005;
+            worldRotationX += deltaY * 0.005;
+
+            // Clamp X rotation to prevent flipping upside down too easily
+            worldRotationX = Math.max(-1, Math.min(1, worldRotationX));
+
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        // 3D Projection Logic
+        function project(x, y, z) {
+            // 1. Rotate around X axis
+            const cosX = Math.cos(worldRotationX);
+            const sinX = Math.sin(worldRotationX);
+            const y1 = y * cosX - z * sinX;
+            const z1 = z * cosX + y * sinX;
+
+            // 2. Rotate around Y axis
+            const cosY = Math.cos(worldRotationY);
+            const sinY = Math.sin(worldRotationY);
+            const x2 = x * cosY - z1 * sinY;
+            const z2 = z1 * cosY + x * sinY;
+
+            // 3. Perspective Projection
+            // Camera is at z = -focalLength (or world moved back)
+            // Here we assume camera at (0,0,-focalLength) looking at (0,0,0)
+            // But standard formula usually assumes camera at 0, world at +z
+            // Let's stick to the prompt's formula: scale = focalLength / (focalLength + z)
+            // We need to ensure z doesn't cross behind the camera (causing division by zero or inversion)
+
+            const depth = focalLength + z2;
+            if (depth < 0) return null; // Behind camera
+
+            const scale = focalLength / depth;
+            const screenX = x2 * scale + width / 2;
+            const screenY = y1 * scale + height / 2;
+
+            return { x: screenX, y: screenY, scale: scale, z: z2 };
+        }
+
+        // --- WORLD GENERATION ---
+
+        const nodes = [];
+        const links = [];
+        const globePoints = [];
+
+        // Cache for performance
+        const nodeGroups = {
+            bank: [],
+            market: [],
+            offshore: [],
+            illegal: [],
+            resource: [],
+            temple: [],
+            tower: [],
+            fortress: [],
+            rig: [],
+            eye: [],
+            monolith: [],
+            island: [],
+            cartel: [],
+            mixer: []
+        };
+
+        // --- HIERARCHY DATA ---
+        const HIERARCHIES = {
+            temple: [ // Central Bank
+                { role: "Board of Governors", count: 7, power: "Total", desc: "Sets Interest Rates. Full Clearance." },
+                { role: "FOMC", count: 12, power: "High", desc: "Decides Money Supply." },
+                { role: "Trading Desk", count: 500, power: "Medium", desc: "Executes Trillion $ Bond Buys." },
+                { role: "Bureaucracy", count: 20000, power: "Low", desc: "Process Paperwork. No Influence." }
+            ],
+            tower: [ // Commercial Bank
+                { role: "Operating Committee", count: 15, power: "Total", desc: "Strategic Direction." },
+                { role: "Global Markets", count: 5000, power: "High", desc: "Derivatives & Whales." },
+                { role: "Consumer Banking", count: 50000, power: "Medium", desc: "Mid-sized Flows." },
+                { role: "Branch Staff", count: 200000, power: "None", desc: "Data Entry." }
+            ],
+            monolith: [ // Shadow Bank
+                { role: "Executive Committee", count: 20, power: "Total", desc: "Voting Rights on $10T." },
+                { role: "ALADDIN AI", count: 1, power: "Omni", desc: "Risk System Server Farm." },
+                { role: "Portfolio Managers", count: 3000, power: "High", desc: "Stock Selection." },
+                { role: "Compliance", count: 16000, power: "Low", desc: "Data Processing." }
+            ],
+            fortress: [ // Military
+                { role: "SecDef & Joint Chiefs", count: 8, power: "Total", desc: "Final Authority." },
+                { role: "Combatant Commanders", count: 11, power: "High", desc: "Regional Control." },
+                { role: "Officers", count: 200000, power: "Medium", desc: "Strategic Ops." },
+                { role: "Enlisted Force", count: 1300000, power: "None", desc: "Execute Orders." }
+            ]
+        };
+
+        // Special Division for Banks
+        const HIDDEN_LEVEL = { role: "Special Clients Div.", count: 50, power: "Secret", desc: "Handle Cartel/Offshore Accounts." };
+
+        // Helper: Spherical to Cartesian
+        function getPosition(lat, lon, radius) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+            const x = -(radius * Math.sin(phi) * Math.cos(theta));
+            const z = (radius * Math.sin(phi) * Math.sin(theta));
+            const y = (radius * Math.cos(phi));
+            return { x, y, z };
+        }
+
+        // 1. Generate Globe Wireframe (Dots)
+        function initGlobe() {
+            for (let lat = -90; lat <= 90; lat += 10) {
+                for (let lon = -180; lon < 180; lon += 10) {
+                    // Jitter slightly for organic look
+                    if (Math.random() > 0.8) continue;
+                    globePoints.push(getPosition(lat, lon, CONFIG.globeRadius));
+                }
+            }
+        }
+
+        // 2. Define Important Nodes
+        class Node {
+            constructor(name, lat, lon, layer, type) {
+                this.name = name;
+                this.lat = lat;
+                this.lon = lon;
+                this.layer = layer;
+                this.type = type;
+
+                // Altitude based on layer
+                let alt = 0;
+                // Layer 1 (Surface) is base radius
+                if (layer === 2) alt = 20; // Enforcers slightly above
+                if (layer === 3) alt = 40; // Shadow High Above (Elite)
+                if (layer === 4) alt = -20; // Underworld Below Surface
+
+                this.pos = getPosition(lat, lon, CONFIG.globeRadius + alt);
+                this.screenPos = { x: 0, y: 0 }; // Updated every frame
+                this.visible = false;
+                this.size = 1; // For growth/shrink animation
+            }
+        }
+
+        const publicCloud = [];
+
+        function initPublicCloud() {
+            // Generate cloud of dots around populated areas (approx)
+            for(let i=0; i<1000; i++) {
+                 // Random lat/lon but weighted towards North Hemisphere
+                 let lat = (Math.random() * 140) - 50;
+                 let lon = (Math.random() * 360) - 180;
+                 publicCloud.push({
+                     pos: getPosition(lat, lon, CONFIG.globeRadius + 2), // Just above surface
+                     basePos: getPosition(lat, lon, CONFIG.globeRadius + 2),
+                     color: '#00ccff',
+                     alpha: 0.3 + Math.random() * 0.5
+                 });
+            }
+        }
+
+        function initNodes() {
+            // Layer 1: The Surface (Public Face)
+            // Central Banks (Temples)
+            nodes.push(new Node("The FED", 38, -77, 1, 'temple'));
+            nodes.push(new Node("ECB", 50, 8, 1, 'temple'));
+            nodes.push(new Node("BOJ", 35, 139, 1, 'temple'));
+            // Commercial Banks (Towers)
+            nodes.push(new Node("JPM", 40, -74, 1, 'tower'));
+            nodes.push(new Node("HSBC", 51, 0, 1, 'tower'));
+            nodes.push(new Node("Deutsche", 50, 9, 1, 'tower'));
+
+            // Layer 2: The Enforcers (Hard Power)
+            // Military (Fortresses)
+            nodes.push(new Node("Pentagon", 38, -77, 2, 'fortress'));
+            nodes.push(new Node("NATO HQ", 50, 4, 2, 'fortress'));
+            // Oil (Rigs)
+            nodes.push(new Node("Aramco", 24, 46, 2, 'rig'));
+            nodes.push(new Node("Exxon", 30, -95, 2, 'rig'));
+            // Tech (Eyes)
+            nodes.push(new Node("Google", 37, -122, 2, 'eye'));
+            nodes.push(new Node("Palantir", 39, -105, 2, 'eye'));
+
+            // Layer 3: The Shadow (Elite Backdoor)
+            // Asset Managers (Monoliths)
+            nodes.push(new Node("BlackRock", 40, -73, 3, 'monolith'));
+            nodes.push(new Node("Vanguard", 40, -75, 3, 'monolith'));
+            // Tax Havens (Islands)
+            nodes.push(new Node("Cayman", 19, -81, 3, 'island'));
+            nodes.push(new Node("Zurich", 47, 8, 3, 'island'));
+            nodes.push(new Node("London City", 51, -0.1, 3, 'island'));
+
+            // Layer 4: The Underworld (Red Market)
+            // Cartels
+            nodes.push(new Node("Sinaloa", 25, -107, 4, 'cartel'));
+            nodes.push(new Node("Triad", 22, 114, 4, 'cartel'));
+            // Dark Finance
+            nodes.push(new Node("Crypto Mixer", 60, 30, 4, 'mixer')); // Russia/East
+
+            // Layer 0: Bedrock (Intrinsic Value - Always there)
+            nodes.push(new Node("Gold Reserve", 40, -110, 0, 'resource')); // US West
+            nodes.push(new Node("Wheat Belt", 45, 35, 0, 'resource')); // Ukraine/Russia
+
+            // Populate Groups for easy access
+            // Reset groups first
+            for(let k in nodeGroups) nodeGroups[k] = [];
+
+            // Add new groups dynamically
+            for(let n of nodes) {
+                if(!nodeGroups[n.type]) nodeGroups[n.type] = [];
+                nodeGroups[n.type].push(n);
+            }
+
+            // Also map by layer for broad logic
+            nodeGroups.layer1 = nodes.filter(n => n.layer === 1);
+            nodeGroups.layer2 = nodes.filter(n => n.layer === 2);
+            nodeGroups.layer3 = nodes.filter(n => n.layer === 3);
+            nodeGroups.layer4 = nodes.filter(n => n.layer === 4);
+        }
+
+        // Render Functions
+        function renderGlobe() {
+            // X-Ray hides the globe surface
+            if (STATE.xray) return;
+
+            // Draw Wireframe Points
+            ctx.fillStyle = 'rgba(50, 50, 50, 0.4)';
+            for (let p of globePoints) {
+                const proj = project(p.x, p.y, p.z);
+                if (proj && proj.scale > 0) {
+                    const alpha = proj.z < 0 ? 0.6 : 0.1;
+                    ctx.fillStyle = `rgba(100, 100, 100, ${alpha})`;
+                    ctx.fillRect(proj.x, proj.y, 1.5, 1.5);
+                }
+            }
+        }
+
+        function renderPublicCloud() {
+            if (STATE.xray) return; // Hide in X-Ray
+
+            for(let p of publicCloud) {
+                const proj = project(p.pos.x, p.pos.y, p.pos.z);
+                if(proj && proj.scale > 0) {
+                    const size = 1.2 * proj.scale;
+                    ctx.globalAlpha = p.alpha * (proj.z < 0 ? 1 : 0.2); // Fade if backface
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(proj.x, proj.y, size, size);
+                }
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        function renderPyramid() {
+            const node = STATE.zoomedNode;
+            if (!node) return;
+
+            const levels = HIERARCHIES[node.type];
+            if (!levels) return;
+
+            // Dim Background
+            ctx.fillStyle = 'rgba(0,0,0,0.85)';
+            ctx.fillRect(0, 0, width, height);
+
+            const cx = width / 2;
+            const cy = height / 2;
+            const pyWidth = 400;
+            const pyHeight = 500;
+            const startY = cy - pyHeight / 2;
+
+            // Draw Title
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#00ffcc';
+            ctx.font = 'bold 24px Courier New';
+            ctx.fillText(`INTERNAL STRUCTURE: ${node.name}`, cx, startY - 40);
+            ctx.font = '16px Courier New';
+            ctx.fillStyle = '#aaaaaa';
+            ctx.fillText("Chain of Command & Info Access", cx, startY - 20);
+
+            // Draw Pyramid Levels
+            const levelHeight = pyHeight / levels.length;
+
+            for (let i = 0; i < levels.length; i++) {
+                const lvl = levels[i];
+                const y = startY + (i * levelHeight);
+
+                // Colors based on Fog of War
+                let bgCol = '#333';
+                let borderCol = '#555';
+                let textCol = '#888';
+                let info = "FOG OF WAR: RESTRICTED";
+
+                if (i === 0) { // Top (Gold)
+                    bgCol = 'rgba(255, 215, 0, 0.2)';
+                    borderCol = '#ffd700';
+                    textCol = '#ffd700';
+                    info = "CLEARANCE: OMNI";
+                } else if (i < levels.length - 1) { // Middle (Blue)
+                    bgCol = 'rgba(0, 255, 204, 0.1)';
+                    borderCol = '#00ffcc';
+                    textCol = '#00ffcc';
+                    info = "CLEARANCE: DEPT ONLY";
+                } else { // Bottom (Grey)
+                    bgCol = 'rgba(100, 100, 100, 0.1)';
+                    borderCol = '#666';
+                    textCol = '#666';
+                    info = "CLEARANCE: TASK ONLY";
+                }
+
+                // Trapezoid Widths
+                const topW = pyWidth * (i / levels.length);
+                const botW = pyWidth * ((i + 1) / levels.length);
+
+                // Draw Trapezoid
+                ctx.beginPath();
+                ctx.moveTo(cx - topW/2, y);
+                ctx.lineTo(cx + topW/2, y);
+                ctx.lineTo(cx + botW/2, y + levelHeight - 5);
+                ctx.lineTo(cx - botW/2, y + levelHeight - 5);
+                ctx.closePath();
+
+                ctx.fillStyle = bgCol;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = borderCol;
+                ctx.stroke();
+
+                // Text
+                ctx.fillStyle = textCol;
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillText(lvl.role, cx, y + 25);
+
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = '#fff';
+                ctx.fillText(`${lvl.count.toLocaleString()} Agents`, cx, y + 45);
+
+                ctx.font = 'italic 12px Courier New';
+                ctx.fillStyle = '#aaa';
+                ctx.fillText(lvl.desc, cx, y + 65);
+
+                // Info Status
+                ctx.font = '10px Courier New';
+                ctx.fillStyle = textCol;
+                ctx.fillText(info, cx, y + levelHeight - 15);
+            }
+
+            // Hidden Level (Banks Only)
+            if (node.type === 'tower') {
+                 // Draw a side box attached to Level 2
+                 const y = startY + (1 * levelHeight);
+                 const x = cx + (pyWidth * (2/levels.length))/2 + 20;
+
+                 ctx.strokeStyle = '#ff3333'; // Red
+                 ctx.fillStyle = 'rgba(50, 0, 0, 0.8)';
+                 ctx.setLineDash([5, 5]);
+                 ctx.lineWidth = 2;
+
+                 ctx.fillRect(x, y, 180, 80);
+                 ctx.strokeRect(x, y, 180, 80);
+                 ctx.setLineDash([]);
+
+                 ctx.fillStyle = '#ff3333';
+                 ctx.font = 'bold 12px Courier New';
+                 ctx.fillText("SECRET DIVISION", x + 90, y + 20);
+                 ctx.fillStyle = '#fff';
+                 ctx.fillText(HIDDEN_LEVEL.role, x + 90, y + 40);
+                 ctx.fillText("Power: OFF-BOOKS", x + 90, y + 60);
+
+                 // Connection Line
+                 ctx.beginPath();
+                 ctx.moveTo(cx + 50, y + 40); // From inside pyramid
+                 ctx.lineTo(x, y + 40);
+                 ctx.strokeStyle = '#ff3333';
+                 ctx.stroke();
+            }
+
+            ctx.textAlign = 'left'; // Reset
+        }
+
+        function renderNodes() {
+            // Draw Links first (Simple connections if any exist in the links array)
+            // ... (Most logic moved to Particles/Flows, keeping legacy links if any)
+
+            // Draw Nodes with Shapes
+            for (let node of nodes) {
+                // X-Ray Logic: Hide Layer 1 (Surface) & Layer 2 (Enforcers)
+                // Wait, prompt says "Hides Layer 1 & 2".
+                // But we want to see Military (Layer 2) in X-Ray according to prompt?
+                // Prompt: "Hides Layer 1 & 2. Reveals only the Military bases... and Illegal money"
+                // So hide Layer 1 (Banks) and Layer 2 (Tech/Oil)? But keep Military?
+
+                let hidden = false;
+                if (STATE.xray) {
+                    if (node.layer === 1) hidden = true; // Hide Banks/Public
+                    if (node.layer === 2 && node.type !== 'fortress') hidden = true; // Hide Tech/Oil, Keep Military
+                }
+
+                if (hidden) continue;
+
+                const proj = project(node.pos.x, node.pos.y, node.pos.z);
+                if (proj) {
+                    node.screenPos = proj;
+                    node.visible = true;
+                    const s = 6 * proj.scale * node.size; // Base size
+
+                    // Forcefield Render
+                    if (node.type === 'shield') {
+                        if (STATE.integrity > 30 && !STATE.xray) {
+                             ctx.fillStyle = 'rgba(0, 200, 255, 0.05)';
+                             ctx.strokeStyle = 'rgba(0, 200, 255, 0.2)';
+                             ctx.beginPath();
+                             ctx.arc(proj.x, proj.y, s * 15, 0, Math.PI * 2);
+                             ctx.fill();
+                             ctx.stroke();
+                        }
+                        continue;
+                    }
+
+                    // Colors
+                    ctx.fillStyle = '#fff';
+                    ctx.strokeStyle = '#fff';
+                    if (node.layer === 1) ctx.fillStyle = CONFIG.colors.fiat;
+                    if (node.layer === 2) ctx.fillStyle = '#8899aa'; // Steel Grey
+                    if (node.layer === 3) ctx.fillStyle = '#444'; // Dark Monolith
+                    if (node.layer === 4) ctx.fillStyle = CONFIG.colors.dirty;
+                    if (node.type === 'resource') ctx.fillStyle = CONFIG.colors.gold;
+
+                    // Special State Colors
+                    if (node.type === 'bank' && STATE.integrity < 50) ctx.fillStyle = '#ff0000'; // Insolvent
+
+                    ctx.beginPath();
+
+                    // Shapes
+                    if (node.type === 'temple') { // Triangle
+                        ctx.moveTo(proj.x, proj.y - s);
+                        ctx.lineTo(proj.x + s, proj.y + s);
+                        ctx.lineTo(proj.x - s, proj.y + s);
+                        ctx.fill();
+                    } else if (node.type === 'tower') { // Rect
+                        ctx.fillRect(proj.x - s/2, proj.y - s, s, s*2);
+                    } else if (node.type === 'fortress') { // Pentagon
+                         const step = (Math.PI * 2) / 5;
+                         for(let i=0; i<5; i++) {
+                             ctx.lineTo(proj.x + s * Math.cos(step*i - Math.PI/2), proj.y + s * Math.sin(step*i - Math.PI/2));
+                         }
+                         ctx.fill();
+                    } else if (node.type === 'monolith') { // Tall Dark Rect
+                         ctx.fillStyle = '#111';
+                         ctx.strokeStyle = '#333';
+                         ctx.fillRect(proj.x - s/2, proj.y - s*1.5, s, s*3);
+                         ctx.strokeRect(proj.x - s/2, proj.y - s*1.5, s, s*3);
+                    } else if (node.type === 'eye') { // Eye
+                         ctx.arc(proj.x, proj.y, s, 0, Math.PI*2);
+                         ctx.stroke();
+                         ctx.beginPath();
+                         ctx.arc(proj.x, proj.y, s/3, 0, Math.PI*2);
+                         ctx.fill();
+                    } else if (node.type === 'rig') { // T shape
+                        ctx.fillRect(proj.x - s/4, proj.y - s, s/2, s*2);
+                        ctx.fillRect(proj.x - s, proj.y - s, s*2, s/2);
+                    } else if (node.type === 'cartel') { // X
+                        ctx.moveTo(proj.x - s, proj.y - s);
+                        ctx.lineTo(proj.x + s, proj.y + s);
+                        ctx.moveTo(proj.x + s, proj.y - s);
+                        ctx.lineTo(proj.x - s, proj.y + s);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = CONFIG.colors.dirty;
+                        ctx.stroke();
+                    } else {
+                        // Default Circle
+                        ctx.arc(proj.x, proj.y, s, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Label (only if in front)
+                    if (proj.z < 0) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '10px Courier New';
+                        ctx.fillText(node.name, proj.x + s, proj.y - s);
+                    }
+                } else {
+                    node.visible = false;
+                }
+            }
+        }
+
+        // --- PARTICLE SYSTEM ---
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = 0;
+                this.y = 0;
+                this.z = 0;
+                this.vx = 0;
+                this.vy = 0;
+                this.vz = 0;
+                this.life = 0;
+                this.maxLife = 100;
+                this.active = false;
+                this.type = 'fiat';
+                this.color = '#fff';
+                this.target = null;
+            }
+        }
+
+        const particlePool = [];
+
+        function initParticles() {
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                particlePool.push(new Particle());
+            }
+        }
+
+        function spawnParticle(type, sourceNode, targetNode) {
+            // Find first inactive particle
+            const p = particlePool.find(p => !p.active);
+            if (!p) return; // Pool empty
+
+            p.active = true;
+            p.type = type;
+            p.life = 0;
+            p.maxLife = 100 + Math.random() * 100; // Random life
+
+            // Start at source
+            p.x = sourceNode.pos.x;
+            p.y = sourceNode.pos.y;
+            p.z = sourceNode.pos.z;
+            p.target = targetNode;
+
+            // Determine color
+            if (type === 'fiat') p.color = CONFIG.colors.fiat; // Blue
+            if (type === 'fiat_public') p.color = CONFIG.colors.fiat; // Blue
+            if (type === 'protection') p.color = '#8899aa'; // Steel Grey
+            if (type === 'vacuum') p.color = CONFIG.colors.gold; // Gold Dust
+            if (type === 'laundromat') p.color = CONFIG.colors.dirty; // Red
+            if (type === 'dirty') p.color = CONFIG.colors.dirty;
+        }
+
+        function updateAndRenderParticles() {
+            for (let p of particlePool) {
+                if (!p.active) continue;
+
+                // Logic: Move towards target
+                if (p.target) {
+                    const tx = p.target.pos ? p.target.pos.x : p.target.x; // Handle raw objects
+                    const ty = p.target.pos ? p.target.pos.y : p.target.y;
+                    const tz = p.target.pos ? p.target.pos.z : p.target.z;
+
+                    const speed = 0.03; // Slightly faster
+                    p.x += (tx - p.x) * speed;
+                    p.y += (ty - p.y) * speed;
+                    p.z += (tz - p.z) * speed;
+
+                    const dist = (tx-p.x)**2 + (ty-p.y)**2 + (tz-p.z)**2;
+                    if (dist < 25) { // Arrival
+                        if (p.type === 'laundromat') {
+                            // Cleaned! Turn Blue and go to Public
+                            p.type = 'fiat_public';
+                            p.color = CONFIG.colors.fiat;
+                            p.target = { pos: getRandomPublicPoint().pos };
+                        } else if (p.type === 'fiat') {
+                             // Central -> Commercial. Now go to Public.
+                             p.type = 'fiat_public';
+                             p.target = { pos: getRandomPublicPoint().pos };
+                        } else {
+                            // Die on arrival (absorbed)
+                            p.active = false;
+                        }
+                    }
+                }
+
+                // Decay
+                p.life++;
+                if (p.life > p.maxLife) {
+                    p.active = false;
+                    continue;
+                }
+
+                // Render (Optimized)
+                const proj = project(p.x, p.y, p.z);
+                if (proj && proj.scale > 0) {
+                    if (STATE.xray && (p.type === 'fiat' || p.type === 'leak')) continue; // Hide fiat in xray
+
+                    const alpha = 1 - (p.life / p.maxLife);
+                    const size = (p.type === 'gold' ? 3 : 2) * proj.scale;
+
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(proj.x, proj.y, size, size);
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+        }
+
+        // --- SIMULATION LOGIC ---
+
+        const STATE = {
+            debt: 305000000000000,
+            inflation: 2.4,
+            integrity: 98,
+            ratio: 124,
+            leaking: true,
+            xray: false,
+            sanctioned: false,
+            zoomedNode: null
+        };
+
+        const DOM = {
+            debt: document.getElementById('global-debt'),
+            ratio: document.getElementById('real-fake-ratio'),
+            integrity: document.getElementById('system-integrity'),
+            inflation: document.getElementById('inflation-rate'),
+            notification: document.getElementById('notification-area'),
+            agents: document.getElementById('total-agents'),
+            knowRatio: document.getElementById('know-ratio')
+        };
+
+        // Calculate Global Headcount
+        let totalAgents = 0;
+        let totalKnow = 0;
+
+        function updateHeadcount() {
+            totalAgents = 0;
+            totalKnow = 0;
+
+            for(let type in HIERARCHIES) {
+                const levels = HIERARCHIES[type];
+                // Multiply by number of nodes of this type
+                const count = nodeGroups[type] ? nodeGroups[type].length : 0;
+
+                if(count > 0) {
+                     for(let lvl of levels) {
+                         totalAgents += lvl.count * count;
+                         if(lvl.power === "Total" || lvl.power === "Omni") {
+                             totalKnow += lvl.count * count;
+                         }
+                     }
+                }
+            }
+        }
+
+        function formatCurrency(val) {
+            return '$' + val.toLocaleString();
+        }
+
+        function updateSimulation() {
+            // 1. Debt spirals
+            STATE.debt += 1000000000; // +1 Billion per frame (fast!)
+
+            // 2. Inflation creeps up randomly
+            if (Math.random() > 0.98) STATE.inflation += 0.01;
+
+            // 3. Integrity checks
+            if (STATE.inflation > 10) STATE.integrity -= 0.1;
+            if (STATE.integrity < 0) STATE.integrity = 0;
+
+            // 4. Update HUD
+            if (frameCount % 10 === 0) { // Optimize DOM updates
+                DOM.debt.innerText = formatCurrency(STATE.debt);
+                DOM.inflation.innerText = STATE.inflation.toFixed(1) + '%';
+                DOM.integrity.innerText = Math.floor(STATE.integrity) + '%';
+
+                // Visual Alarm
+                if (STATE.integrity < 50) {
+                    DOM.integrity.style.color = 'red';
+                    if (STATE.integrity < 20) {
+                         DOM.notification.style.display = (frameCount % 60 < 30) ? 'block' : 'none'; // Blink
+                    }
+                } else {
+                    DOM.integrity.style.color = '#00ffcc';
+                    DOM.notification.style.display = 'none';
+                }
+
+                // Agents (Static mostly)
+                DOM.agents.innerText = (totalAgents / 1000000).toFixed(1) + 'M';
+                DOM.knowRatio.innerText = (totalKnow / totalAgents * 100).toFixed(4) + '%';
+            }
+        }
+
+        // Helper to pick random cloud point
+        function getRandomPublicPoint() {
+            return publicCloud[Math.floor(Math.random() * publicCloud.length)];
+        }
+
+        // Spawner Logic (The Heartbeat)
+        function spawnLoop() {
+            // Pipeline A: Fiat Pump (Central -> Commercial -> Public)
+            if (Math.random() > 0.3) {
+                // Step 1: Central -> Commercial
+                const central = nodeGroups.temple[Math.floor(Math.random() * nodeGroups.temple.length)];
+                const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                spawnParticle('fiat', central, commercial);
+            }
+            // Step 2: Commercial -> Public (Handled in Particle Update or just spawn random)
+            if (Math.random() > 0.3) {
+                 const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                 const pub = getRandomPublicPoint();
+                 // We need to pass a "Target Object" that has .pos
+                 spawnParticle('fiat_public', commercial, { pos: pub.pos });
+            }
+
+            // Pipeline B: Protection Racket (Public -> Military)
+            if (Math.random() > 0.8) {
+                const pub = getRandomPublicPoint();
+                const military = nodeGroups.fortress[Math.floor(Math.random() * nodeGroups.fortress.length)];
+                spawnParticle('protection', { pos: pub.pos }, military);
+            }
+
+            // Pipeline C: The Vacuum (Public -> Asset Managers)
+            // Triggered by "Inflation Leak"
+            if (STATE.leaking && Math.random() > 0.6) {
+                 const pub = getRandomPublicPoint();
+                 const assetMgr = nodeGroups.monolith[Math.floor(Math.random() * nodeGroups.monolith.length)];
+                 spawnParticle('vacuum', { pos: pub.pos }, assetMgr);
+            }
+
+            // Pipeline D: The Laundromat (Cartel -> Commercial)
+            if (Math.random() > 0.7) {
+                const cartel = nodeGroups.cartel[Math.floor(Math.random() * nodeGroups.cartel.length)];
+                const commercial = nodeGroups.tower[Math.floor(Math.random() * nodeGroups.tower.length)];
+                spawnParticle('laundromat', cartel, commercial);
+            }
+
+            // Sanction Bypass (East -> Dark Finance -> Gold)
+            if (STATE.sanctioned && Math.random() > 0.9) {
+                // Just visualize flow to mixer
+                const mixer = nodeGroups.mixer[0];
+                const gold = nodeGroups.resource[0];
+                spawnParticle('dirty', gold, mixer);
+            }
+        }
+
+        let frameCount = 0;
+
+        // --- MAIN ENTRY POINT ---
+        window.onload = function() {
+            console.log("Project OMEGA Initialized.");
+
+            initGlobe();
+            initNodes();
+            initPublicCloud();
+            initParticles();
+
+            updateHeadcount();
+
+            // Event Listeners
+            document.getElementById('btn-stimulus').addEventListener('click', () => {
+                const banks = nodes.filter(n => n.type === 'bank');
+                const markets = nodes.filter(n => n.type === 'market');
+                for(let i=0; i<500; i++) {
+                     const source = banks[Math.floor(Math.random() * banks.length)];
+                     const target = markets[Math.floor(Math.random() * markets.length)];
+                     spawnParticle('fiat', source, target);
+                }
+                STATE.debt += 1000000000000; // +1 Trillion
+            });
+
+            document.getElementById('btn-sanction').addEventListener('click', () => {
+                STATE.sanctioned = !STATE.sanctioned;
+                // Spawn dirty money wave
+                if (STATE.sanctioned) {
+                     const illegals = nodes.filter(n => n.type === 'illegal');
+                     const banks = nodes.filter(n => n.type === 'bank');
+                     for(let i=0; i<200; i++) {
+                         const source = illegals[Math.floor(Math.random() * illegals.length)];
+                         const target = banks[Math.floor(Math.random() * banks.length)];
+                         spawnParticle('dirty', source, target);
+                     }
+                }
+            });
+
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                // Kill all fiat
+                particlePool.forEach(p => {
+                    if (p.type === 'fiat') {
+                         p.active = false; // Vanish instantly
+                    }
+                });
+                STATE.debt = 0;
+                STATE.ratio = 1;
+                // Spawn Gold Rush
+                const resources = nodes.filter(n => n.type === 'resource');
+                const zurich = nodes.find(n => n.name === 'Zurich');
+                for(let i=0; i<500; i++) {
+                    const source = resources[Math.floor(Math.random() * resources.length)];
+                    spawnParticle('gold', source, zurich);
+                }
+            });
+
+            document.getElementById('btn-xray').addEventListener('click', (e) => {
+                STATE.xray = !STATE.xray;
+                e.target.innerText = `X-Ray Vision: ${STATE.xray ? 'ON' : 'OFF'}`;
+            });
+
+            // Initial Tilt
+            worldRotationX = 0.2;
+
+            // Animation Loop
+            function animate() {
+                // Clear Canvas
+                ctx.fillStyle = CONFIG.colors.background;
+                ctx.fillRect(0, 0, width, height);
+
+                // Auto-rotate if not dragging
+                if (!isDragging) {
+                    worldRotationY += CONFIG.rotationSpeed;
+                }
+
+                if (STATE.zoomedNode) {
+                    renderPyramid();
+                } else {
+                    renderGlobe();
+                    renderPublicCloud();
+                    renderNodes();
+
+                    spawnLoop();
+                    updateAndRenderParticles();
+                }
+
+                updateSimulation();
+                frameCount++;
+
+                requestAnimationFrame(animate);
+            }
+            animate();
+        };
+
+    </script>
+</body>
+</html>
