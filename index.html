@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project OMEGA: The Total Earth Financial Simulator</title>
+    <style>
+        /* CSS Reset & Dark Mode Base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', Courier, monospace; /* Monospaced for tech feel */
+        }
+
+        body {
+            background-color: #000000;
+            color: #00ffcc; /* Neon Cyan default text */
+            overflow: hidden; /* Prevent scrollbars */
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Canvas Overlay */
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI Overlay - HUD & Controls */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none; /* Let clicks pass through to canvas where needed */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+
+        /* Top HUD */
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-bottom: 2px solid #00ffcc;
+            pointer-events: auto;
+        }
+
+        .hud-stat {
+            text-align: center;
+        }
+
+        .hud-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 0 0 5px #00ffcc;
+        }
+
+        .hud-label {
+            font-size: 0.8rem;
+            color: #aaaaaa;
+        }
+
+        /* Bottom Controls */
+        .controls-bottom {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-top: 2px solid #ff0000; /* Red accent for "Danger" feel */
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            pointer-events: auto;
+        }
+
+        button {
+            background: #111;
+            color: #00ffcc;
+            border: 1px solid #00ffcc;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            box-shadow: 0 0 5px rgba(0, 255, 204, 0.2);
+        }
+
+        button:hover {
+            background: #00ffcc;
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.8);
+        }
+
+        button.danger {
+            color: #ff3333;
+            border-color: #ff3333;
+        }
+
+        button.danger:hover {
+            background: #ff3333;
+            color: #000;
+            box-shadow: 0 0 15px rgba(255, 51, 51, 0.8);
+        }
+
+        /* Scanline Effect */
+        .scanline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.3;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="simulationCanvas"></canvas>
+    </div>
+
+    <div class="scanline"></div>
+
+    <div id="ui-layer">
+        <!-- Top HUD -->
+        <div class="hud-top">
+            <div class="hud-stat">
+                <div class="hud-value" id="global-debt">$305,000,000,000,000</div>
+                <div class="hud-label">GLOBAL DEBT</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="real-fake-ratio">1 : 124</div>
+                <div class="hud-label">REAL / DERIVATIVES</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="system-integrity" style="color: #00ffcc;">98%</div>
+                <div class="hud-label">SYSTEM INTEGRITY</div>
+            </div>
+            <div class="hud-stat">
+                <div class="hud-value" id="inflation-rate">2.4%</div>
+                <div class="hud-label">INFLATION</div>
+            </div>
+        </div>
+
+        <!-- Center Notification Area (Hidden by default) -->
+        <div id="notification-area" style="text-align: center; margin-top: 20%; display: none;">
+            <h1 style="color: red; font-size: 3rem; text-shadow: 0 0 20px red;">SYSTEM FAILURE IMMINENT</h1>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="controls-bottom">
+            <button id="btn-stimulus">Stimulus Injection</button>
+            <button id="btn-sanction" class="danger">Global Sanction</button>
+            <button id="btn-reset" class="danger">THE GREAT RESET</button>
+            <button id="btn-xray">X-Ray Vision: OFF</button>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            particleCount: 5000,
+            globeRadius: 250,
+            rotationSpeed: 0.002,
+            colors: {
+                fiat: '#00ffcc',   // Cyan/Green
+                gold: '#ffd700',   // Gold
+                dirty: '#ff3333',  // Red
+                shadow: '#aaaaaa', // Grey
+                background: '#000000'
+            }
+        };
+
+        // --- 3D ENGINE CORE ---
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for speed
+
+        let width, height;
+        let focalLength = 400; // Distance to camera
+
+        // World State
+        let worldRotationY = 0;
+        let worldRotationX = 0; // Tilted slightly by default
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // Resize Handling
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            focalLength = width * 0.8; // Dynamic field of view
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Mouse Controls
+        canvas.addEventListener('mousedown', e => {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        window.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+
+            worldRotationY += deltaX * 0.005;
+            worldRotationX += deltaY * 0.005;
+
+            // Clamp X rotation to prevent flipping upside down too easily
+            worldRotationX = Math.max(-1, Math.min(1, worldRotationX));
+
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        // 3D Projection Logic
+        function project(x, y, z) {
+            // 1. Rotate around X axis
+            const cosX = Math.cos(worldRotationX);
+            const sinX = Math.sin(worldRotationX);
+            const y1 = y * cosX - z * sinX;
+            const z1 = z * cosX + y * sinX;
+
+            // 2. Rotate around Y axis
+            const cosY = Math.cos(worldRotationY);
+            const sinY = Math.sin(worldRotationY);
+            const x2 = x * cosY - z1 * sinY;
+            const z2 = z1 * cosY + x * sinY;
+
+            // 3. Perspective Projection
+            // Camera is at z = -focalLength (or world moved back)
+            // Here we assume camera at (0,0,-focalLength) looking at (0,0,0)
+            // But standard formula usually assumes camera at 0, world at +z
+            // Let's stick to the prompt's formula: scale = focalLength / (focalLength + z)
+            // We need to ensure z doesn't cross behind the camera (causing division by zero or inversion)
+
+            const depth = focalLength + z2;
+            if (depth < 0) return null; // Behind camera
+
+            const scale = focalLength / depth;
+            const screenX = x2 * scale + width / 2;
+            const screenY = y1 * scale + height / 2;
+
+            return { x: screenX, y: screenY, scale: scale, z: z2 };
+        }
+
+        // --- WORLD GENERATION ---
+
+        const nodes = [];
+        const links = [];
+        const globePoints = [];
+
+        // Cache for performance
+        const nodeGroups = {
+            bank: [],
+            market: [],
+            offshore: [],
+            illegal: [],
+            resource: []
+        };
+
+        // Helper: Spherical to Cartesian
+        function getPosition(lat, lon, radius) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180);
+            const x = -(radius * Math.sin(phi) * Math.cos(theta));
+            const z = (radius * Math.sin(phi) * Math.sin(theta));
+            const y = (radius * Math.cos(phi));
+            return { x, y, z };
+        }
+
+        // 1. Generate Globe Wireframe (Dots)
+        function initGlobe() {
+            for (let lat = -90; lat <= 90; lat += 10) {
+                for (let lon = -180; lon < 180; lon += 10) {
+                    // Jitter slightly for organic look
+                    if (Math.random() > 0.8) continue;
+                    globePoints.push(getPosition(lat, lon, CONFIG.globeRadius));
+                }
+            }
+        }
+
+        // 2. Define Important Nodes
+        class Node {
+            constructor(name, lat, lon, layer, type) {
+                this.name = name;
+                this.lat = lat;
+                this.lon = lon;
+                this.layer = layer;
+                this.type = type;
+
+                // Altitude based on layer
+                let alt = 0;
+                if (layer === 2) alt = 40; // Offshore hovers above
+                if (layer === 3) alt = -10; // Underground slightly below surface
+
+                this.pos = getPosition(lat, lon, CONFIG.globeRadius + alt);
+                this.screenPos = { x: 0, y: 0 }; // Updated every frame
+                this.visible = false;
+            }
+        }
+
+        function initNodes() {
+            // Layer 0: Bedrock (Real Value) - Gold
+            nodes.push(new Node("Gold Mine (SA)", -30, 25, 0, 'resource'));
+            nodes.push(new Node("Oil Field (ME)", 25, 45, 0, 'resource'));
+            nodes.push(new Node("Wheat Belt (US)", 40, -100, 0, 'resource'));
+            nodes.push(new Node("Lithium (Aus)", -25, 135, 0, 'resource'));
+
+            // Layer 1: Surface (Fiat) - Cyan
+            nodes.push(new Node("FED (DC)", 38, -77, 1, 'bank'));
+            nodes.push(new Node("ECB (Frankfurt)", 50, 8, 1, 'bank'));
+            nodes.push(new Node("BOJ (Tokyo)", 35, 139, 1, 'bank'));
+            nodes.push(new Node("LSE (London)", 51, 0, 1, 'market'));
+            nodes.push(new Node("NYSE (NY)", 40, -74, 1, 'market'));
+
+            // Layer 2: Shadow (Offshore) - Ghost White
+            nodes.push(new Node("Cayman Is.", 19, -81, 2, 'offshore'));
+            nodes.push(new Node("Zurich", 47, 8, 2, 'offshore'));
+            nodes.push(new Node("Singapore", 1, 103, 2, 'offshore'));
+            nodes.push(new Node("Dubai", 25, 55, 2, 'offshore'));
+
+            // Layer 3: Underworld (Illegal) - Red
+            nodes.push(new Node("Cartel Hub (Mex)", 23, -102, 3, 'illegal'));
+            nodes.push(new Node("Dark Server (Rus)", 60, 100, 3, 'illegal'));
+            nodes.push(new Node("Smuggler Port (SE Asia)", 10, 105, 3, 'illegal'));
+
+            // Create Connections (Static Links for visualization)
+            // Connect Banks (Layer 1)
+            links.push({ from: 4, to: 5, color: CONFIG.colors.fiat }); // ECB <-> FED
+            links.push({ from: 4, to: 6, color: CONFIG.colors.fiat }); // FED <-> BOJ
+            links.push({ from: 4, to: 8, color: CONFIG.colors.fiat }); // FED <-> NYSE
+
+            // Connect Offshore (Layer 1 -> 2)
+            links.push({ from: 8, to: 9, color: CONFIG.colors.shadow, dashed: true }); // NYSE -> Cayman
+            links.push({ from: 5, to: 10, color: CONFIG.colors.shadow, dashed: true }); // ECB -> Zurich
+
+            // Shield Node (Center of West)
+            nodes.push(new Node("Forcefield", 45, -35, 1, 'shield'));
+
+            // Connect Illegal (Layer 3 -> 1)
+            links.push({ from: 13, to: 4, color: CONFIG.colors.dirty, dashed: true }); // Cartel -> FED (Laundering)
+
+            // Populate Groups
+            for(let n of nodes) {
+                if(nodeGroups[n.type]) nodeGroups[n.type].push(n);
+            }
+        }
+
+        // Render Functions
+        function renderGlobe() {
+            // X-Ray hides the globe surface
+            if (STATE.xray) return;
+
+            // Draw Wireframe Points
+            ctx.fillStyle = 'rgba(50, 50, 50, 0.4)';
+            for (let p of globePoints) {
+                const proj = project(p.x, p.y, p.z);
+                if (proj && proj.scale > 0) {
+                    const alpha = proj.z < 0 ? 0.6 : 0.1;
+                    ctx.fillStyle = `rgba(100, 100, 100, ${alpha})`;
+                    ctx.fillRect(proj.x, proj.y, 1.5, 1.5);
+                }
+            }
+        }
+
+        function renderNodes() {
+            // Draw Links first
+            for (let link of links) {
+                const n1 = nodes[link.from];
+                const n2 = nodes[link.to];
+
+                // X-Ray Logic: Hide Layer 1 links (Surface)
+                if (STATE.xray && (n1.layer === 1 || n2.layer === 1)) continue;
+
+                // Sanction Logic: Turn Fiat links red
+                let color = link.color;
+                if (STATE.sanctioned && link.color === CONFIG.colors.fiat) {
+                    color = CONFIG.colors.dirty; // Red
+                }
+
+                const p1 = project(n1.pos.x, n1.pos.y, n1.pos.z);
+                const p2 = project(n2.pos.x, n2.pos.y, n2.pos.z);
+
+                if (p1 && p2 && p1.z > -100 && p2.z > -100) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1;
+                    if (link.dashed) ctx.setLineDash([5, 5]);
+                    else ctx.setLineDash([]);
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                    ctx.stroke();
+                }
+            }
+            // Reset dash
+            ctx.setLineDash([]);
+
+            // Draw Nodes
+            for (let node of nodes) {
+                // X-Ray Logic: Hide Layer 1 nodes
+                if (STATE.xray && node.layer === 1) continue;
+
+                const proj = project(node.pos.x, node.pos.y, node.pos.z);
+                if (proj) {
+                    node.screenPos = proj;
+                    node.visible = true;
+
+                    const size = 4 * proj.scale;
+
+                    if (node.type === 'shield') {
+                        // Special Render for Forcefield
+                        if (STATE.integrity > 50 && !STATE.sanctioned && !STATE.xray) {
+                            ctx.fillStyle = 'rgba(0, 200, 255, 0.05)';
+                            ctx.strokeStyle = 'rgba(0, 200, 255, 0.2)';
+                            ctx.beginPath();
+                            ctx.arc(proj.x, proj.y, size * 15, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.stroke();
+                        }
+                        continue;
+                    }
+
+                    if (node.layer === 0) ctx.fillStyle = CONFIG.colors.gold;
+                    else if (node.layer === 1) ctx.fillStyle = CONFIG.colors.fiat;
+                    else if (node.layer === 2) ctx.fillStyle = CONFIG.colors.shadow;
+                    else if (node.layer === 3) ctx.fillStyle = CONFIG.colors.dirty;
+
+                    // Sanction: Turn banks red
+                    if (STATE.sanctioned && node.type === 'bank') ctx.fillStyle = CONFIG.colors.dirty;
+
+                    ctx.beginPath();
+                    ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Label (only if in front)
+                    if (proj.z < 0) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '10px Courier New';
+                        ctx.fillText(node.name, proj.x + 5, proj.y - 5);
+                    }
+                } else {
+                    node.visible = false;
+                }
+            }
+        }
+
+        // --- PARTICLE SYSTEM ---
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = 0;
+                this.y = 0;
+                this.z = 0;
+                this.vx = 0;
+                this.vy = 0;
+                this.vz = 0;
+                this.life = 0;
+                this.maxLife = 100;
+                this.active = false;
+                this.type = 'fiat';
+                this.color = '#fff';
+                this.target = null;
+            }
+        }
+
+        const particlePool = [];
+
+        function initParticles() {
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                particlePool.push(new Particle());
+            }
+        }
+
+        function spawnParticle(type, sourceNode, targetNode) {
+            // Find first inactive particle
+            const p = particlePool.find(p => !p.active);
+            if (!p) return; // Pool empty
+
+            p.active = true;
+            p.type = type;
+            p.life = 0;
+            p.maxLife = 100 + Math.random() * 100; // Random life
+
+            // Start at source
+            p.x = sourceNode.pos.x;
+            p.y = sourceNode.pos.y;
+            p.z = sourceNode.pos.z;
+            p.target = targetNode;
+
+            // Determine color
+            if (type === 'fiat') p.color = CONFIG.colors.fiat;
+            if (type === 'gold') p.color = CONFIG.colors.gold;
+            if (type === 'dirty') p.color = CONFIG.colors.dirty;
+            if (type === 'leak') p.color = CONFIG.colors.shadow;
+        }
+
+        function updateAndRenderParticles() {
+            for (let p of particlePool) {
+                if (!p.active) continue;
+
+                // Logic: Move towards target
+                if (p.target) {
+                    const tx = p.target.pos.x;
+                    const ty = p.target.pos.y;
+                    const tz = p.target.pos.z;
+
+                    const speed = 0.02;
+                    p.x += (tx - p.x) * speed;
+                    p.y += (ty - p.y) * speed;
+                    p.z += (tz - p.z) * speed;
+
+                    const dist = (tx-p.x)**2 + (ty-p.y)**2 + (tz-p.z)**2; // Squared dist for speed
+                    if (dist < 25) { // < 5 distance
+                        if (p.type === 'dirty') {
+                            p.type = 'fiat';
+                            p.color = CONFIG.colors.fiat;
+                            p.target = nodeGroups.market[Math.floor(Math.random() * nodeGroups.market.length)];
+                        } else if (p.type === 'fiat') {
+                            p.life += 10;
+                        }
+                    }
+                }
+
+                // Decay
+                p.life++;
+                if (p.life > p.maxLife) {
+                    p.active = false;
+                    continue;
+                }
+
+                // Render (Optimized)
+                const proj = project(p.x, p.y, p.z);
+                if (proj && proj.scale > 0) {
+                    if (STATE.xray && (p.type === 'fiat' || p.type === 'leak')) continue; // Hide fiat in xray
+
+                    const alpha = 1 - (p.life / p.maxLife);
+                    const size = (p.type === 'gold' ? 3 : 2) * proj.scale;
+
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(proj.x, proj.y, size, size);
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+        }
+
+        // --- SIMULATION LOGIC ---
+
+        const STATE = {
+            debt: 305000000000000,
+            inflation: 2.4,
+            integrity: 98,
+            ratio: 124,
+            leaking: true,
+            xray: false,
+            sanctioned: false
+        };
+
+        const DOM = {
+            debt: document.getElementById('global-debt'),
+            ratio: document.getElementById('real-fake-ratio'),
+            integrity: document.getElementById('system-integrity'),
+            inflation: document.getElementById('inflation-rate'),
+            notification: document.getElementById('notification-area')
+        };
+
+        function formatCurrency(val) {
+            return '$' + val.toLocaleString();
+        }
+
+        function updateSimulation() {
+            // 1. Debt spirals
+            STATE.debt += 1000000000; // +1 Billion per frame (fast!)
+
+            // 2. Inflation creeps up randomly
+            if (Math.random() > 0.98) STATE.inflation += 0.01;
+
+            // 3. Integrity checks
+            if (STATE.inflation > 10) STATE.integrity -= 0.1;
+            if (STATE.integrity < 0) STATE.integrity = 0;
+
+            // 4. Update HUD
+            if (frameCount % 10 === 0) { // Optimize DOM updates
+                DOM.debt.innerText = formatCurrency(STATE.debt);
+                DOM.inflation.innerText = STATE.inflation.toFixed(1) + '%';
+                DOM.integrity.innerText = Math.floor(STATE.integrity) + '%';
+
+                // Visual Alarm
+                if (STATE.integrity < 50) {
+                    DOM.integrity.style.color = 'red';
+                    if (STATE.integrity < 20) {
+                         DOM.notification.style.display = (frameCount % 60 < 30) ? 'block' : 'none'; // Blink
+                    }
+                } else {
+                    DOM.integrity.style.color = '#00ffcc';
+                    DOM.notification.style.display = 'none';
+                }
+            }
+        }
+
+        // Spawner Logic (The Heartbeat)
+        function spawnLoop() {
+            // 1. Fiat Generation (Central Banks -> Markets)
+            if (Math.random() > 0.5) {
+                const source = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
+                const target = nodeGroups.market[Math.floor(Math.random() * nodeGroups.market.length)];
+                spawnParticle('fiat', source, target);
+            }
+
+            // 2. Dirty Money (Illegal -> Banks)
+            if (Math.random() > 0.8) {
+                const source = nodeGroups.illegal[Math.floor(Math.random() * nodeGroups.illegal.length)];
+                const target = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
+                spawnParticle('dirty', source, target);
+            }
+
+            // 3. Gold (Mines -> Zurich)
+            if (Math.random() > 0.9) {
+                const source = nodeGroups.resource[Math.floor(Math.random() * nodeGroups.resource.length)];
+                const zurich = nodeGroups.offshore.find(n => n.name === 'Zurich'); // Zurich is offshore in code
+                if (zurich) spawnParticle('gold', source, zurich);
+            }
+
+            // 4. The Leak (Inflation -> Offshore)
+            if (STATE.leaking && Math.random() > 0.6) {
+                 const bank = nodeGroups.bank[Math.floor(Math.random() * nodeGroups.bank.length)];
+                 const offshore = nodeGroups.offshore[Math.floor(Math.random() * nodeGroups.offshore.length)];
+                 spawnParticle('leak', bank, offshore);
+            }
+        }
+
+        let frameCount = 0;
+
+        // --- MAIN ENTRY POINT ---
+        window.onload = function() {
+            console.log("Project OMEGA Initialized.");
+
+            initGlobe();
+            initNodes();
+            initParticles();
+
+            // Event Listeners
+            document.getElementById('btn-stimulus').addEventListener('click', () => {
+                const banks = nodes.filter(n => n.type === 'bank');
+                const markets = nodes.filter(n => n.type === 'market');
+                for(let i=0; i<500; i++) {
+                     const source = banks[Math.floor(Math.random() * banks.length)];
+                     const target = markets[Math.floor(Math.random() * markets.length)];
+                     spawnParticle('fiat', source, target);
+                }
+                STATE.debt += 1000000000000; // +1 Trillion
+            });
+
+            document.getElementById('btn-sanction').addEventListener('click', () => {
+                STATE.sanctioned = !STATE.sanctioned;
+                // Spawn dirty money wave
+                if (STATE.sanctioned) {
+                     const illegals = nodes.filter(n => n.type === 'illegal');
+                     const banks = nodes.filter(n => n.type === 'bank');
+                     for(let i=0; i<200; i++) {
+                         const source = illegals[Math.floor(Math.random() * illegals.length)];
+                         const target = banks[Math.floor(Math.random() * banks.length)];
+                         spawnParticle('dirty', source, target);
+                     }
+                }
+            });
+
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                // Kill all fiat
+                particlePool.forEach(p => {
+                    if (p.type === 'fiat') {
+                         p.active = false; // Vanish instantly
+                    }
+                });
+                STATE.debt = 0;
+                STATE.ratio = 1;
+                // Spawn Gold Rush
+                const resources = nodes.filter(n => n.type === 'resource');
+                const zurich = nodes.find(n => n.name === 'Zurich');
+                for(let i=0; i<500; i++) {
+                    const source = resources[Math.floor(Math.random() * resources.length)];
+                    spawnParticle('gold', source, zurich);
+                }
+            });
+
+            document.getElementById('btn-xray').addEventListener('click', (e) => {
+                STATE.xray = !STATE.xray;
+                e.target.innerText = `X-Ray Vision: ${STATE.xray ? 'ON' : 'OFF'}`;
+            });
+
+            // Initial Tilt
+            worldRotationX = 0.2;
+
+            // Animation Loop
+            function animate() {
+                // Clear Canvas
+                ctx.fillStyle = CONFIG.colors.background;
+                ctx.fillRect(0, 0, width, height);
+
+                // Auto-rotate if not dragging
+                if (!isDragging) {
+                    worldRotationY += CONFIG.rotationSpeed;
+                }
+
+                renderGlobe();
+                renderNodes();
+
+                spawnLoop();
+                updateAndRenderParticles();
+
+                updateSimulation();
+                frameCount++;
+
+                requestAnimationFrame(animate);
+            }
+            animate();
+        };
+
+    </script>
+</body>
+</html>
